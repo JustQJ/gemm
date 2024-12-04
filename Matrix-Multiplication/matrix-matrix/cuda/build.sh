@@ -1,0 +1,1 @@
+nvcc -o build/main main.cpp mm_kernel.cu  -lcublas -std=c++11
