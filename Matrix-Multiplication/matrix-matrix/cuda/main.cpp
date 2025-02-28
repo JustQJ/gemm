@@ -4,8 +4,11 @@
 #include<sys/time.h>
 #include<cuda.h>
 #include<cuda_runtime.h>
+#include<cublas_v2.h>
+#include "kernel.h"
 
-#include "mm_kernel.h"
+
+
 
 
 #define CUDA_CHECK(call) \
@@ -27,6 +30,7 @@
     } while (0)
 
 
+
 int get_ms(){
     struct timeval t;
     gettimeofday(&t, NULL);
@@ -40,11 +44,11 @@ int get_us(){
 }
 
 
-void cpu_mm(float *A, float *B, float *C, int M, int N, int K){
+void cpu_mm(float *A, float *B, float *C, int M, int N, int K, float alpha, float beta){
     for(int i=0; i<M; i++){
         for(int j=0; j<N; j++){
             for(int k=0; k<K; k++){
-                C[i*N+j] += A[i*K+k]*B[k*N+j];
+                C[i*N+j] =  alpha*A[i*K+k]*B[k*N+j]+beta*C[i*N+j];
             }
         }
     }
@@ -99,63 +103,83 @@ void benchmark(int M, int N, int K, bool correct_check=false){
 
     //cuda memory
 
-    float *d_A, *d_B, *d_C;
+    float *d_A, *d_B, *d_C, *cublas_C;
     cudaMalloc(&d_A, M*K*sizeof(float));
     cudaMalloc(&d_B, K*N*sizeof(float));
     cudaMalloc(&d_C, M*N*sizeof(float));
+    cudaMalloc(&cublas_C, M*N*sizeof(float));
     cudaMemcpy(d_A, A, M*K*sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(d_B, B, K*N*sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(d_C, C, M*N*sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(cublas_C, C, M*N*sizeof(float), cudaMemcpyHostToDevice);
 
 
+    cublasHandle_t handle;
+    cublasCreate(&handle);
+    
+    float alpha = 2.0f;
+    float beta = 1.0f;
 
-    //correctness check
-    if(correct_check){
-        cpu_mm(A, B, C, M, N, K);
+    cublasStatus_t status = cublasSgemm(handle,
+            CUBLAS_OP_N, CUBLAS_OP_N,  // 不转置 A 和 B
+            N, M, K,                  // C 的尺寸 MxN，A 的尺寸 MxK，B 的尺寸 KxN
+            &alpha, 
+            d_B,          //
+            N, 
+            d_A,          // 
+            K, 
+            &beta, 
+            cublas_C,          // 
+            N
+        );
+    if(status != CUBLAS_STATUS_SUCCESS){
+            printf("cublas error\n");
+        }
+    cudaDeviceSynchronize();
+    
+    
 
-        naive_mm(d_A, d_B, d_C, M, N, K);
-        cudaMemcpy(h_C, d_C, M*N*sizeof(float), cudaMemcpyDeviceToHost);
-        check_result(C, h_C, M, N);
-
-        cublas_mm(d_A, d_B, d_C, M, N, K);
-        cudaMemcpy(h_C, d_C, M*N*sizeof(float), cudaMemcpyDeviceToHost);
-        check_result(C, h_C, M, N);
-    }
-   
-
-
-
-    //bench performance
-
-    //warm up
-    for(int i=0; i<10; i++){
-        cublas_mm(d_A, d_B, d_C, M, N, K);
-    }
-
-    int number = 1000;
     int start, end;
 
     start = get_us();
-    for(int i=0; i<number; i++){
-        cublas_mm(d_A, d_B, d_C, M, N, K);
+    status = cublasSgemm(handle,
+        CUBLAS_OP_N, CUBLAS_OP_N,  // 不转置 A 和 B
+        N, M, K,                  // C 的尺寸 MxN，A 的尺寸 MxK，B 的尺寸 KxN
+        &alpha, 
+        d_B,          //
+        N, 
+        d_A,          // 
+        K, 
+        &beta, 
+        cublas_C,          // 
+        N
+    );
+    if(status != CUBLAS_STATUS_SUCCESS){
+            printf("cublas error\n");
     }
-    end = get_us();
-    float cublas_cost = (float)(end-start)/number;
-    float cublas_gflops = 2.0*M*N*K/(cublas_cost*1000.0); // (2M*N*K/10^9) / (cost/10^6) = 2M*N*K/cost*1000
-    printf("cublas cost time: %f us, GFLOPS: %f.\n",  cublas_cost, cublas_gflops);
-    
+    cudaDeviceSynchronize();
 
+    end = get_us();
+    float cublas_cost = (float)(end-start);
+    float cublas_gflops = 2.0*M*N*K/(cublas_cost*1000.0);
+
+    float cost_time;
+    float gflops;
     start = get_us();
-    for(int i=0; i<number; i++){
-        naive_mm(d_A, d_B, d_C, M, N, K);
-    }
+    custom_sgemm(d_A, d_B, d_C, M, N, K, alpha, beta);
+    cudaDeviceSynchronize();
     end = get_us();
-    float naive_cost = (float)(end-start)/number;
-    float naive_gflops = 2.0*M*N*K/(naive_cost*1000.0);
-    printf("naive_mm cost time: %f us, GFLOPS: %f, speedup to cublas: %f.\n",  naive_cost, naive_gflops, naive_gflops/cublas_gflops);
+    cost_time = (float)(end-start);
+    gflops = 2.0*M*N*K/(cost_time*1000.0);
+    
+    
+    printf("custom gemm / cublas gemm cost time: %f / %f us, GFLOPS: %f / %f, speedup to cublas: %f.\n",  cost_time, cublas_cost, gflops, cublas_gflops, gflops/cublas_gflops);
 
 
 
+    cudaMemcpy(h_C, d_C, M*N*sizeof(float), cudaMemcpyDeviceToHost);
+    cpu_mm(A, B, C, M, N, K, alpha, beta);
+    check_result(C, h_C, M, N);
 
     //memory free
 
@@ -171,12 +195,20 @@ void benchmark(int M, int N, int K, bool correct_check=false){
 
 
 int main(){
+
+  
+
+    // int M = 2048;
+    // int N = 2048;
+    // int K = 2048;
+    int start = 10;
+    int end = 20;
+    for (int m = 256 * start; m <= 256 * end; m += 256) {
+        benchmark(m, m, m, false);
+    }
     
-    benchmark(1024, 1024, 1024);
     return 0;
 
 
 }
-
-
 
