@@ -4,6 +4,61 @@
 检查GPU的各项参数，包括SM的数量，shared memory的大小等。
 
 ```c++
+
+
+inline int _ConvertSMVer2Cores(int major, int minor) {
+  // Defines for GPU Architecture types (using the SM version to determine
+  // the # of cores per SM
+  typedef struct {
+    int SM;  // 0xMm (hexidecimal notation), M = SM Major version,
+    // and m = SM minor version
+    int Cores;
+  } sSMtoCores;
+
+  sSMtoCores nGpuArchCoresPerSM[] = {
+      {0x30, 192},
+      {0x32, 192},
+      {0x35, 192},
+      {0x37, 192},
+      {0x50, 128},
+      {0x52, 128},
+      {0x53, 128},
+      {0x60,  64},
+      {0x61, 128},
+      {0x62, 128},
+      {0x70,  64},
+      {0x72,  64},
+      {0x75,  64},
+      {0x80,  64},
+      {0x86, 128},
+      {0x87, 128},
+      {0x89, 128},
+      {0x90, 128},
+      {0xa0, 128},
+      {0xa1, 128},
+      {0xc0, 128},
+      {-1, -1}};
+
+  int index = 0;
+
+  while (nGpuArchCoresPerSM[index].SM != -1) {
+    if (nGpuArchCoresPerSM[index].SM == ((major << 4) + minor)) {
+      return nGpuArchCoresPerSM[index].Cores;
+    }
+
+    index++;
+  }
+
+  // If we don't find the values, we default use the previous one
+  // to run properly
+  printf(
+      "MapSMtoCores for SM %d.%d is undefined."
+      "  Default to use %d Cores/SM\n",
+      major, minor, nGpuArchCoresPerSM[index - 1].Cores);
+  return nGpuArchCoresPerSM[index - 1].Cores;
+}
+
+
 int print_gpu_info(){
      int deviceCount = 0;
     cudaGetDeviceCount(&deviceCount);  // 获取可用的GPU数量
@@ -125,10 +180,14 @@ https://docs.nvidia.com/deeplearning/performance/dl-performance-gpu-background/i
 ### 优化出发点
 ![Cuda Optimization Techniques](figs/cuda-optim.png)
 
+### 内存合并
+
+cuda中的访存是以warp为单位的，即一个warp中的线程发出的访存指令会被合并成一个memory request，而这个request会形成一个或者多个memory transaction，分为`32-byte transaction, 64-byte transaction, 128-byte transaction`。一个线程可以一次访问1,2,4,8,16 bytes，那么一个warp就能形成32, 64, 128, 256, 512 bytes的request。然后根据内存是否连续合并成几个transaction。例如每个线程访问一个float4，如果内存连续，就需要发起4次 `128-byte transaction`。
+
+**？待弄清楚的点：** 如何确定到达发起的是那一种 transaction。例如一个线程访问一个float，那么形成了128 bytes的request，那么是发起4次 `32-byte transaction`，还是发起1次 `128-byte transaction`。 是否和指令有关，例如使用的是`LD.32`，就只能发起`32-byte transaction`，使用的是`LD.128`，就能发起`128-byte transaction`。
 
 
-
-
+使用`LD.128`的优势是什么，如果使用`LD.32`也能发起`128-byte transaction`，那么LD.128的优势是提高缓存利用？
 
 
 

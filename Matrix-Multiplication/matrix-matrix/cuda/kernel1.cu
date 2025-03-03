@@ -14,10 +14,24 @@ __global__ void sgemm_kernel(float *d_A, float *d_B, float *d_C, int M, int N, i
     __shared__ float Bs[Tile_K][Tile_N];
 
     if(col<N && row<M){
-        float val = 0;
-        for(int k=0; k<K; k++){
-            val += d_A[row*K+k]*d_B[k*N+col];
+        float val = 0.0;
+
+        for(int k=0; k<K; k+=Tile_K){
+            if(k+threadIdx.x<K && k+threadIdx.y<K ){
+
+                As[threadIdx.y][threadIdx.x] = d_A[row*K+k+threadIdx.x];
+                Bs[threadIdx.y][threadIdx.x] = d_B[(k+threadIdx.y)*N+col];
+
+            }
+
+            for(int kk=0; kk<min(K-k,Tile_K); kk++){
+                    val+=As[threadIdx.y][kk]*Bs[kk][threadIdx.x];
+            }
+
+           
+
         }
+
         d_C[row*N+col] = alpha*val + beta*d_C[row*N+col];
     }
 }

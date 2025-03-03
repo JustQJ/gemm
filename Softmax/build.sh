@@ -1,0 +1,1 @@
+nvcc -o build/main main.cpp kernel6.cu -O2 -lcublas -std=c++11
