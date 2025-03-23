@@ -13,7 +13,9 @@ def add_kernel(x_ptr,
     # Define the block size
 
     pid = tl.program_id(0)
-
+    
+    
+    
     block_start = pid * BLOCK_SIZE  ## 当前block的起始位置
     offsets = block_start + tl.arange(0, BLOCK_SIZE) ## 当前block所有元素的address
     mask = offsets < n_elements ## 当前block所有元素的address是否在n_elements范围内
@@ -26,13 +28,16 @@ def add_kernel(x_ptr,
     tl.store(output_ptr+offsets, output, mask=mask) ## 将结果写回内存
 
 
+
+
+
 def add(x: torch.Tensor, y: torch.Tensor):
     assert x.shape == y.shape
     assert x.is_cuda and y.is_cuda
     n_elements = x.numel()
     output = torch.empty_like(x)
     
-
+    
     # Launch the kernel
     grid = lambda meta: (triton.cdiv(n_elements, meta['BLOCK_SIZE']), ) ## 这是一个grid函数，BLOCK_SIZE 来自下面kernel的参数表
     

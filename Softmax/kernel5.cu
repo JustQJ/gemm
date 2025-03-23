@@ -156,7 +156,7 @@ __global__ void __kernel_fused_softmax_block_level(float *A, int m, int n){
         }
 
         float global_max_val = data[0];
-
+         __syncthreads();
         norm_base = norm_base*expf(max_val-global_max_val);
         
         //reduce the norm_base
@@ -200,6 +200,112 @@ __global__ void __kernel_fused_softmax_block_level(float *A, int m, int n){
 
 
 }
+
+
+// template<const int BS=256>
+// __global__ void fused_softmax(float *A, float *B, int m, int n){
+//     int row = blockIdx.x;
+//     int tid = threadIdx.x;
+//     // int block_size = blockDim.x;
+
+//     float *Current_rowA = A+row*n;
+//     float *Current_rowB = B+row*n;
+
+//     float max_val=-INFINITY;
+//     float norm_base = 0;
+//     float4 temp;
+
+//     __shared__ float data[BS];
+//     for(int i=tid*4; i<n; i+=BS*4){
+//         temp = ((float4 *)(&Current_rowA[i]))[0];
+//         float temp_max = max(temp.x, temp.y);
+//         temp_max = max(temp.z, temp_max);
+//         temp_max = max(temp.w, temp_max);
+//         if(temp_max>max_val){
+//             norm_base = norm_base*exp(max_val-temp_max);
+//             max_val = temp_max;
+//         } 
+
+//         norm_base += exp(temp.x-max_val);
+//         norm_base += exp(temp.y-max_val);
+//         norm_base += exp(temp.z-max_val);
+//         norm_base += exp(temp.w-max_val);
+
+//     }
+
+//     //reduce the max_val with shared memory
+//     data[tid] = max_val;
+//     __syncthreads();
+
+    
+//     for(int offset=BS/2; offset>0; offset>>=1){
+//         if(tid<offset){
+//             data[tid] = max(data[tid], data[tid+offset]);
+//         }
+
+//         __syncthreads();
+//     }
+
+//     float global_max = data[0];
+
+//     //correct the norm base
+//     norm_base = norm_base*exp(max_val-global_max);
+
+//     //reduce the norm base 
+//     __syncthreads();
+//     data[tid] = norm_base;
+//     __syncthreads();
+//     //reduce the norm base
+//     for(int offset=BS/2; offset>0; offset>>=1){
+//         if(tid<offset){
+//             data[tid] = data[tid] + data[tid+offset];
+//         }
+
+//         __syncthreads();
+//     }
+
+//     norm_base = data[0]; //get the right normal base
+
+
+//     //compute the results
+
+    
+//     for(int i=tid*4; i<n; i+=BS*4){
+//         temp = ((float4 *)(&Current_rowA[i]))[0];
+        
+//         temp.x = exp(temp.x-global_max)/norm_base;
+//         temp.y = exp(temp.y-global_max)/norm_base;
+//         temp.z = exp(temp.z-global_max)/norm_base;
+//         temp.w = exp(temp.w-global_max)/norm_base;
+
+        
+//         ((float4 *)(&Current_rowB[i]))[0] = temp;
+
+//     }
+
+
+
+// }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // use shared memory to load data first when n<=4096
 __global__ void __kernel_fused_softmax_block_level_shared(float *A, int m, int n){

@@ -37,9 +37,46 @@ __global__ void __kernel_sgemv(float *A, float *x, float *y, int m, int n, float
         for(int offset=16; offset>0; offset>>=1){
             val+= __shfl_down_sync(0xffffffff, val, offset);
         }
+        // for(int offset=16; offset>0; offset>>=2){
+        //     val+=__shfl_down_sync(0xffffffff, val, offset)
+        // }
         if(line_id==0){
             y[row] = alpha * val + beta* y[row];
         }
+    }
+
+}
+//y = A*x
+__global__ void __kernel_sgemv(float *A, float *x, float *y, int m, int n){
+
+    int wrap_id =  threadIdx.y;
+    int line_id =   threadIdx.x;
+    int row = wrap_id+blockIdx.x*blockDim.y;
+
+    if(row<m){
+        //using float 4 to load
+
+        float val = 0;
+        for(int i=4*line_id; i<n; i+=4*32){
+            float4 a = ((float4 *)(&A[row*n+i]))[0];
+            float4 b = ((float4 *)(&x[i]))[0];
+
+            val += a.x*b.x;
+            val += a.y*b.y;
+            val += a.z*b.z;
+            val += a.w*b.w;
+
+        } 
+
+        //reduce all results of one warp into the first thread
+
+        for(int offset=16; offset>0; offset>>=1){
+            val += __shfl_down_sync(0xffffffff, val, offset);
+        }  
+
+        if(line_id==0)
+            y[row] = val;
+
     }
 
 }

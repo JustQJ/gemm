@@ -223,6 +223,8 @@ __global__ void __kernel_reduce_sum(float *A, int N, float *res){
             res[blockIdx.x] = val;
     }
 
+    
+
 
 
 }
